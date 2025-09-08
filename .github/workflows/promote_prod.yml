@@ -40,32 +40,32 @@ jobs:
       - name: Preview Configuration Changes
         id: preview
         run: |
-          echo "🔍 Preview: ${{ inputs.config_file }} → gs://${{ env.BUCKET_NAME }}/config.json"
+          echo "🔍 Preview: ${{ inputs.config_file }} → gs://${{ env.BUCKET_NAME }}/${{ inputs.config_file }}"
 
-          echo "::group::📄 NEW CONFIG"
+          echo "::group::📄 NEW FILE"
           echo "Content of ${{ inputs.config_file }}:"
-          cat "${{ inputs.config_file }}" | jq .
+          cat "${{ inputs.config_file }}"
           echo "::endgroup::"
 
-          echo "::group::📄 CURRENT CONFIG"
-          if gsutil cat gs://${{ env.BUCKET_NAME }}/config.json > current-config.json 2>/dev/null; then
-            echo "Current config in bucket:"
-            cat current-config.json | jq .
+          echo "::group::📄 CURRENT FILE"
+          if gsutil cat gs://${{ env.BUCKET_NAME }}/${{ inputs.config_file }} > current-file-content 2>/dev/null; then
+            echo "Current file in bucket:"
+            cat current-file-content
             echo "has-current=true" >> $GITHUB_OUTPUT
           else
-            echo "ℹ️ No current config in bucket"
+            echo "ℹ️ No current file in bucket: ${{ inputs.config_file }}"
             echo "has-current=false" >> $GITHUB_OUTPUT
           fi
           echo "::endgroup::"
 
           echo "::group::🔄 CHANGES"
-          if [ -f current-config.json ]; then
+          if [ -f current-file-content ]; then
             echo "Changes that would be made:"
-            if diff -u current-config.json "${{ inputs.config_file }}"; then
-              echo "⚠️ No changes detected between current and new config"
+            if diff -u current-file-content "${{ inputs.config_file }}"; then
+              echo "⚠️ No changes detected between current and new file"
             fi
           else
-            echo "This would be the first deployment"
+            echo "This would be the first deployment of this file"
           fi
           echo "::endgroup::"
 
@@ -93,28 +93,28 @@ jobs:
 
       - name: Deploy Configuration
         run: |
-          echo "🚀 Deploying ${{ inputs.config_file }} to gs://${{ env.BUCKET_NAME }}/config.json"
+          echo "🚀 Deploying ${{ inputs.config_file }} to gs://${{ env.BUCKET_NAME }}/${{ inputs.config_file }}"
           echo "🔐 Deploying as service account: $(gcloud auth list --filter=status:ACTIVE --format='value(account)')"
 
           # Verify we're deploying the same file that was previewed
           CURRENT_HASH=$(sha256sum "${{ inputs.config_file }}" | cut -d' ' -f1)
           if [ "$CURRENT_HASH" != "${{ needs.preview.outputs.config-hash }}" ]; then
-            echo "❌ Config file hash mismatch!"
+            echo "❌ File hash mismatch!"
             exit 1
           fi
 
-          # Backup current config
-          BACKUP_NAME="backup-config-$(date +%Y%m%d-%H%M%S).json"
-          if gsutil cp gs://${{ env.BUCKET_NAME }}/config.json gs://${{ env.BUCKET_NAME }}/$BACKUP_NAME 2>/dev/null; then
-            echo "📋 Backed up current config as $BACKUP_NAME"
+          # Backup current file
+          BACKUP_NAME="backup-${{ inputs.config_file }}-$(date +%Y%m%d-%H%M%S)"
+          if gsutil cp gs://${{ env.BUCKET_NAME }}/${{ inputs.config_file }} gs://${{ env.BUCKET_NAME }}/$BACKUP_NAME 2>/dev/null; then
+            echo "📋 Backed up current file as $BACKUP_NAME"
             echo "backup_file=$BACKUP_NAME" >> $GITHUB_ENV
           fi
 
-          # Deploy new config
-          gsutil cp "${{ inputs.config_file }}" gs://${{ env.BUCKET_NAME }}/config.json
+          # Deploy new file
+          gsutil cp "${{ inputs.config_file }}" gs://${{ env.BUCKET_NAME }}/${{ inputs.config_file }}"
 
           # Verify deployment
-          gsutil stat gs://${{ env.BUCKET_NAME }}/config.json
+          gsutil stat gs://${{ env.BUCKET_NAME }}/${{ inputs.config_file }}"
           echo "✅ Deployed ${{ inputs.config_file }} successfully!"
 
       - name: Generate Deployment Summary
@@ -122,16 +122,16 @@ jobs:
           cat >> $GITHUB_STEP_SUMMARY << EOF
           # ✅ Deployment Successful
 
-          **Config File:** \`${{ inputs.config_file }}\`
+          **File:** \`${{ inputs.config_file }}\`
           **Service Account:** \`$(gcloud auth list --filter=status:ACTIVE --format='value(account)')\`
-          **Target:** \`gs://${{ env.BUCKET_NAME }}/config.json\`
+          **Target:** \`gs://${{ env.BUCKET_NAME }}/${{ inputs.config_file }}\`
           **Backup:** \`gs://${{ env.BUCKET_NAME }}/${{ env.backup_file }}\`
           **Timestamp:** \`$(date -Iseconds)\`
           **Workflow:** [\`${{ github.run_id }}\`](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
 
           ## Actions Performed
           1. ✅ Service account authentication
-          2. 📋 Backed up previous configuration
-          3. 🚀 Uploaded new configuration
+          2. 📋 Backed up previous file
+          3. 🚀 Uploaded new file
           4. ✅ Verified deployment success
           EOF
